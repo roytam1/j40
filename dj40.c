@@ -20,18 +20,19 @@
 #endif
 
 int main(int argc, char **argv) {
+	j40_image image;
 	if (argc < 2) {
 		fprintf(stderr, "Usage: %s input.jxl [output.png]\n", argv[0]);
 		return 1;
 	}
 
-	j40_image image;
 	j40_from_file(&image, argv[1]);
 	j40_output_format(&image, J40_RGBA, J40_U8X4);
 
 	if (j40_next_frame(&image)) {
+		j40_pixels_u8x4 pixels;
 		j40_frame frame = j40_current_frame(&image);
-		j40_pixels_u8x4 pixels = j40_frame_pixels_u8x4(&frame, J40_RGBA);
+		pixels = j40_frame_pixels_u8x4(&frame, J40_RGBA);
 		if (argc > 2) {
 			fprintf(stderr, "%dx%d frame read.\n", pixels.width, pixels.height);
 			stbi_write_png(argv[2], pixels.width, pixels.height, 4, pixels.data, pixels.stride_bytes);

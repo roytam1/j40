@@ -88,8 +88,33 @@ int main(int argc, char **argv) {
 #endif
 
 #include <stddef.h>
-#include <stdint.h>
 #include <stdlib.h>
+
+/* MSVC 6.0 compatibility fixes */
+#if defined(_MSC_VER) && (_MSC_VER <= 1600)
+    typedef unsigned char      uint8_t;
+    typedef unsigned short     uint16_t;
+    typedef unsigned int       uint32_t;
+    typedef unsigned __int64   uint64_t; /* MSVC 6 supports __int64 */
+    typedef signed char        int8_t;
+    typedef signed short       int16_t;
+    typedef signed int         int32_t;
+    typedef __int64            int64_t;
+    #define inline __inline
+    #define INT16_MIN 0x8000
+    #define INT16_MAX 0x7FFF
+    #define INT32_MAX 0x7FFFFFFF
+    #define INT32_MIN 0x80000000
+    #define INT64_MAX 0x7FFFFFFFFFFFFFFFi64
+    #define INT64_MIN 0x8000000000000000i64
+    #define SIZE_MAX 0xFFFFFFFF
+    #define snprintf _snprintf
+    #ifndef STDINT_H_UINTPTR_T_DEFINED
+        #define uintptr_t uint32_t
+    #endif
+#else
+    #include <stdint.h>
+#endif
 
 #ifdef J40_IMPLEMENTATION
 	#define J40__IMPLEMENTATION_INCLUDED
@@ -105,6 +130,16 @@ int main(int argc, char **argv) {
 		#define J40__EXPOSE_INTERNALS
 	#endif
 #endif
+
+/* move math related defines lower */
+#if defined(_MSC_VER) && (_MSC_VER <= 1600)
+    #define isfinite _finite
+    #define cbrtf(x) (float)pow(x,(double)1/3)
+
+    #undef hypot
+    #define hypot(x,y) sqrt((x)*(x)+(y)*(y))
+#endif
+
 
 #ifdef J40__EXPOSE_INTERNALS
 	#define J40__RECURSING (-1)
@@ -340,7 +375,7 @@ J40_API void j40_free(j40_image *image);
 #ifndef J40_ALWAYS_INLINE
 	#if J40__HAS_ALWAYS_INLINE_ATTR || J40__GCC_VER >= 0x30100 || J40__CLANG_VER >= 0x10000
 		#define J40_ALWAYS_INLINE __attribute__((always_inline)) J40_INLINE
-	#elif defined _MSC_VER
+	#elif defined(_MSC_VER) && _MSC_VER > 1200
 		#define J40_ALWAYS_INLINE __forceinline
 	#else
 		#define J40_ALWAYS_INLINE J40_INLINE
@@ -627,14 +662,32 @@ J40_ALWAYS_INLINE int j40__surely_nonzero(float x) {
 }
 
 #ifdef _MSC_VER // required for j40__floor/ceil_lgN implementations
-
+#if _MSC_VER > 1400
 #include <intrin.h>
-
 #pragma intrinsic(_BitScanReverse)
+
 J40_ALWAYS_INLINE int j40__clz32(uint32_t x) {
 	unsigned long index;
 	return _BitScanReverse(&index, x) ? 31 - (int) index : 32;
 }
+#else
+J40_ALWAYS_INLINE uint32_t j40__popcnt( uint32_t x ) {
+    x -= ((x >> 1) & 0x55555555);
+    x = (((x >> 2) & 0x33333333) + (x & 0x33333333));
+    x = (((x >> 4) + x) & 0x0f0f0f0f);
+    x += (x >> 8);
+    x += (x >> 16);
+    return x & 0x0000003f;
+}
+J40_ALWAYS_INLINE int j40__clz32(uint32_t x) {
+    x |= (x >> 1);
+    x |= (x >> 2);
+    x |= (x >> 4);
+    x |= (x >> 8);
+    x |= (x >> 16);
+    return 32 - j40__popcnt(x);
+}
+#endif
 
 J40_ALWAYS_INLINE int j40__clz16(uint16_t x) { return j40__clz32(x); }
 
@@ -1988,7 +2041,7 @@ J40_INLINE float j40__f16(j40__st *st) {
 	int32_t bits = j40__u(st, 16);
 	int32_t biased_exp = (bits >> 10) & 0x1f;
 	if (biased_exp == 31) return J40__ERR("!fin"), 0.0f;
-	return (bits >> 15 ? -1 : 1) * ldexpf((float) ((bits & 0x3ff) | (biased_exp > 0 ? 0x400 : 0)), biased_exp - 25);
+	return (bits >> 15 ? -1 : 1) * (float)ldexp((float) ((bits & 0x3ff) | (biased_exp > 0 ? 0x400 : 0)), biased_exp - 25);
 }
 
 J40_INLINE int32_t j40__u8(j40__st *st) { // ANS distribution decoding only
@@ -4786,7 +4839,7 @@ J40_INLINE float j40__interpolate(float pos, int32_t c, const j40_f32x4 *bands, 
 	frac_idx = scaled_pos - (float) scaled_idx;
 	a = bands[scaled_idx][c];
 	b = bands[scaled_idx + 1][c];
-	return a * powf(b / a, frac_idx);
+	return a * (float)pow(b / a, frac_idx);
 }
 
 J40__STATIC_RETURNS_ERR j40__interpolation_bands(
@@ -4816,7 +4869,7 @@ J40_STATIC void j40__dct_quant_weights(
 	for (c = 0; c < 3; ++c) {
 		for (y = 0; y < rows; ++y) for (x = 0; x < columns; ++x) {
 			static const float INV_SQRT2 = 1.0f / 1.414214562373095f; // 1/(sqrt(2) + 1e-6)
-			float d = hypotf((float) x * inv_columns_m1, (float) y * inv_rows_m1);
+			float d = (float)hypot((float) x * inv_columns_m1, (float) y * inv_rows_m1);
 			// TODO spec issue: num_bands doesn't exist (probably len)
 			out[y * columns + x][c] = j40__interpolate(d * INV_SQRT2, c, bands, len);
 		}
@@ -6527,7 +6580,7 @@ J40__STATIC_RETURNS_ERR j40__smooth_lf(j40__st *st, j40__lf_group_st *gg, j40__p
 					(nline[c][x - 1] * W2 + nline[c][x] * W1 + nline[c][x + 1] * W2) +
 					( line[c][x - 1] * W1 +  line[c][x] * W0 +  line[c][x + 1] * W1) +
 					(sline[c][x - 1] * W2 + sline[c][x] * W1 + sline[c][x + 1] * W2);
-				diff[c] = fabsf(wa[c] - line[c][x]) * inv_m_lf[c];
+				diff[c] = (float)fabs(wa[c] - line[c][x]) * inv_m_lf[c];
 				if (gap < diff[c]) gap = diff[c];
 			}
 			gap = j40__maxf(0.0f, 3.0f - 4.0f * gap);
@@ -7230,7 +7283,7 @@ J40__STATIC_RETURNS_ERR j40__combine_vardct_from_lf_group(j40__st *st, const j40
 						samples[1][p] * im->opsin_inv_mat[c][1] +
 						samples[2][p] * im->opsin_inv_mat[c][2];
 					// TODO very, very slow; probably different approximations per bpp ranges may be needed
-					v = (v <= 0.0031308f ? 12.92f * v : 1.055f * powf(v, 1.0f / 2.4f) - 0.055f); // to sRGB
+					v = (v <= 0.0031308f ? 12.92f * v : 1.055f * (float)pow(v, 1.0f / 2.4f) - 0.055f); // to sRGB
 					// TODO overflow check
 					pixels[gg->left + x] = (int16_t) ((float) ((1 << im->bpp) - 1) * v + 0.5f);
 				}
@@ -7356,13 +7409,13 @@ J40_STATIC void j40__epf_distance(const j40__plane *in, int32_t dx, int32_t dy, 
 		float *outpixels = J40__F32_PIXELS(out, y + 1) + 1;
 
 		for (x = -1; x < xlo; ++x) {
-			outpixels[x] = fabsf(refpixels[j40__mirror1d(x, width)] - offpixels[j40__mirror1d(x + dx, width)]);
+			outpixels[x] = (float)fabs(refpixels[j40__mirror1d(x, width)] - offpixels[j40__mirror1d(x + dx, width)]);
 		}
 		for (; x < xhi; ++x) {
-			outpixels[x] = fabsf(refpixels[x] - offpixels[x + dx]);
+			outpixels[x] = (float)fabs(refpixels[x] - offpixels[x + dx]);
 		}
 		for (; x <= width; ++x) {
-			outpixels[x] = fabsf(refpixels[j40__mirror1d(x, width)] - offpixels[j40__mirror1d(x + dx, width)]);
+			outpixels[x] = (float)fabs(refpixels[j40__mirror1d(x, width)] - offpixels[j40__mirror1d(x + dx, width)]);
 		}
 	}
 }
@@ -7538,14 +7591,14 @@ J40__STATIC_RETURNS_ERR j40__epf_step(
 
 			if (dist_uses_cross) {
 				for (k = 0; k < nkernels; ++k) {
-					float dist = 0.0f;
+					float weight, dist = 0.0f;
 					for (c = 0; c < 3; ++c) {
 						dist += f->epf.channel_scale[c] * (
 							distance_rows[k][1][c][x + 1] +
 							distance_rows[k][1][c][x + 0] + distance_rows[k][0][c][x + 1] +
 							distance_rows[k][2][c][x + 1] + distance_rows[k][1][c][x + 2]);
 					}
-					float weight = j40__maxf(0.0f, 1.0f + dist * inv_sigma_times_pos_mult);
+					weight = j40__maxf(0.0f, 1.0f + dist * inv_sigma_times_pos_mult);
 					sum_weights += weight;
 					for (c = 0; c < 3; ++c) {
 						sum_channels[c] += lines[2 + kernels[k][0]][c][x + kernels[k][1]] * weight;
@@ -7553,11 +7606,11 @@ J40__STATIC_RETURNS_ERR j40__epf_step(
 				}
 			} else {
 				for (k = 0; k < nkernels; ++k) {
-					float dist = 0.0f;
+					float weight, dist = 0.0f;
 					for (c = 0; c < 3; ++c) {
 						dist += f->epf.channel_scale[c] * distance_rows[k][1][c][x + 1];
 					}
-					float weight = j40__maxf(0.0f, 1.0f + dist * inv_sigma_times_pos_mult);
+					weight = j40__maxf(0.0f, 1.0f + dist * inv_sigma_times_pos_mult);
 					sum_weights += weight;
 					for (c = 0; c < 3; ++c) {
 						sum_channels[c] += lines[2 + kernels[k][0]][c][x + kernels[k][1]] * weight;
