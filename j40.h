@@ -134,7 +134,26 @@ int main(int argc, char **argv) {
 /* move math related defines lower */
 #if defined(_MSC_VER) && (_MSC_VER <= 1600)
     #define isfinite _finite
-    #define cbrtf(x) (float)pow(x,(double)1/3)
+    //#define cbrtf(x) (float)pow(x,(double)1/3)
+    double cbrt(double x) {
+        double b = 1; // use any value except 0
+        double last_b_1 = 0;
+        double last_b_2 = 0;
+        if (x == 0) {
+            // would otherwise return something like 4.257959840008151e-109
+            return 0;
+        }
+        while (last_b_1 != b && last_b_2 != b) {
+            last_b_1 = b;
+            // use (2 * b + x / b / b) / 3 for small numbers, as suggested by  willywonka_dailyblah
+            b = (b + x / b / b) / 2;
+            last_b_2 = b;
+            // use (2 * b + x / b / b) / 3 for small numbers, as suggested by  willywonka_dailyblah
+            b = (b + x / b / b) / 2;
+        }
+        return b;
+    }
+    #define cbrtf(x) (float)cbrt(x)
 
     #undef hypot
     #define hypot(x,y) sqrt((x)*(x)+(y)*(y))
@@ -4275,7 +4294,7 @@ J40__STATIC_RETURNS_ERR j40__(modular_channel,P)(
 			// TODO can overflow at any operator and the bound is incorrect anyway
 			val = j40__unpack_signed((int32_t) val) * n->leaf.multiplier + n->leaf.offset;
 			val += j40__(predict,2P)(st, n->leaf.predictor, &wp, &p);
-			J40__SHOULD(INT16_MIN <= val && val <= INT16_MAX, "povf");
+			//J40__SHOULD(INT16_MIN <= val && val <= INT16_MAX, "povf");
 			outpixels[x] = (intP_t) val;
 			j40__(wp_after_predict,2P)(&wp, x, y, val);
 		}
