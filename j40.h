@@ -137,7 +137,8 @@ int main(int argc, char **argv) {
 #endif
 
 /* move math related defines lower */
-#if defined(_MSC_VER) && (_MSC_VER <= 1800)
+#if defined(__TINYC__) || (defined(_MSC_VER) && (_MSC_VER <= 1800))
+    #include <float.h>
     #define isfinite _finite
     //#define cbrtf(x) (float)pow(x,(double)1/3)
     double cbrt(double x) {
@@ -189,7 +190,7 @@ extern "C" {
 #endif
 
 #ifndef J40_STATIC_ASSERT
-	#if __STDC_VERSION__ >= 199901L
+	#if !defined(__TINYC__) && __STDC_VERSION__ >= 199901L
 		#define J40_STATIC_ASSERT(cond, msg) _Static_assert(cond, #msg)
 	#else
 		#define J40_STATIC_ASSERT(cond, msg) typedef char j40__##msg[(cond) ? 1 : -1]
@@ -398,7 +399,7 @@ J40_API void j40_free(j40_image *image);
 #ifndef J40_RESTRICT
 	#if __STDC_VERSION__ >= 199901L
 		#define J40_RESTRICT restrict
-	#elif defined __GNUC__ || __MSC_VER >= 1900 // since pretty much every GCC/Clang and VS 2015
+	#elif defined __GNUC__ || (defined(_MSC_VER) && _MSC_VER >= 1900) // since pretty much every GCC/Clang and VS 2015
 		#define J40_RESTRICT __restrict
 	#else
 		#define J40_RESTRICT
@@ -406,7 +407,7 @@ J40_API void j40_free(j40_image *image);
 #endif // !defined J40_RESTRICT
 
 // most structs in J40 are designed to be zero-initialized, and this avoids useless warnings
-#if defined __cplusplus /*|| __STDC_VERSION__ >= 2023xxL*/
+#if defined __cplusplus && !defined(_MSC_VER) /*|| __STDC_VERSION__ >= 2023xxL*/
 	#define J40__INIT {}
 #else
 	#define J40__INIT {0}
@@ -674,7 +675,7 @@ J40_ALWAYS_INLINE int j40__surely_nonzero(float x) {
 	return isfinite(x) && fabs(x) >= 1e-8f;
 }
 
-#ifdef _MSC_VER // required for j40__floor/ceil_lgN implementations
+#if defined(_MSC_VER) || defined(__TINYC__) // required for j40__floor/ceil_lgN implementations
 #if _MSC_VER > 1400
 #include <intrin.h>
 #pragma intrinsic(_BitScanReverse)
@@ -843,7 +844,7 @@ J40_ALWAYS_INLINE j40__intN j40__(clamp_mul,N)(j40__intN x, j40__intN y) {
 
 #endif // defined J40_IMPLEMENTATION
 
-#ifdef _MSC_VER
+#if defined(_MSC_VER) || defined(__TINYC__)
 	#define J40__CLZN j40__(clz, N)
 #else
 	#define J40__UINTN_MAX J40__CONCAT3(UINT, J40__N, _MAX)
@@ -4337,7 +4338,11 @@ J40__STATIC_RETURNS_ERR j40__inverse_transform(j40__st *st, j40__modular *m);
 
 #ifdef J40_IMPLEMENTATION
 #define J40__X(x,y,z) {x,y,z}, {-(x),-(y),-(z)}
+#ifdef _MSC_VER
+#define J40__XX(a,b,c,d,e,f) J40__X ## a, J40__X ## b, J40__X ## c, J40__X ## d, J40__X ## e, J40__X ## f
+#else
 #define J40__XX(a,b,c,d,e,f) J40__X a, J40__X b, J40__X c, J40__X d, J40__X e, J40__X f
+#endif
 static const int16_t J40__PALETTE_DELTAS[144][3] = { // the first entry is a duplicate and skipped
 	J40__XX((0, 0, 0), (4, 4, 4), (11, 0, 0), (0, 0, -13), (0, -12, 0), (-10, -10, -10)),
 	J40__XX((-18, -18, -18), (-27, -27, -27), (-18, -18, 0), (0, 0, -32), (-32, 0, 0), (-37, -37, -37)),
@@ -8499,7 +8504,11 @@ J40_API j40_pixels_u8x4 j40_frame_pixels_u8x4(const j40_frame *frame, int32_t ch
 	// on error, return this placeholder image (TODO should this include an error message?)
 	#define J40__U8X4_THIRD(a,b,c,d,e,f,g) 255,0,0,a*255, 255,0,0,b*255, 255,0,0,c*255, \
 		255,0,0,d*255, 255,0,0,e*255, 255,0,0,f*255, 255,0,0,g*255
+	#ifdef _MSC_VER
+	#define J40__U8X4_ROW(aa,bb,cc) J40__U8X4_THIRD ## aa, J40__U8X4_THIRD ## bb, J40__U8X4_THIRD ## cc
+	#else
 	#define J40__U8X4_ROW(aa,bb,cc) J40__U8X4_THIRD aa, J40__U8X4_THIRD bb, J40__U8X4_THIRD cc
+	#endif
 	static const uint8_t ERROR_PIXELS_DATA[] = {
 		J40__U8X4_ROW((1,1,1,1,1,1,1),(1,1,1,1,1,1,1),(1,1,1,1,1,1,1)),
 		J40__U8X4_ROW((1,0,0,0,1,1,1),(1,1,1,1,1,1,1),(1,1,1,1,1,1,1)),
